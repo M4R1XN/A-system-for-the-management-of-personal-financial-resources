@@ -1,0 +1,297 @@
+import os
+import tkinter as tk
+from tkinter import messagebox, ttk
+from tkcalendar import DateEntry
+import pandas as pd
+import ttkbootstrap as ttkb
+import json
+import matplotlib.pyplot as plt
+from database import (
+    init_db, add_transaction, get_transactions, add_user, verify_user,
+    get_users, backup_database, restore_database, get_db_connection
+)
+from currency import convert_currency
+
+# Utility functions
+def save_user_preferences(theme):
+    with open("user_prefs.json", "w") as file:
+        json.dump({"theme": theme}, file)
+
+def load_user_preferences():
+    try:
+        with open("user_prefs.json", "r") as file:
+            theme = json.load(file).get("theme", "flatly")
+            # Ensure a valid theme is returned
+            if theme not in ttkb.Style().theme_names():
+                theme = "flatly"
+            return theme
+    except FileNotFoundError:
+        return "flatly"  # Default theme
+
+class Tooltip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tooltip = None
+        widget.bind("<Enter>", self.show_tooltip)
+        widget.bind("<Leave>", self.hide_tooltip)
+
+    def show_tooltip(self, event):
+        self.tooltip = ttkb.Label(self.widget, text=self.text, style="info.TLabel", relief="solid")
+        self.tooltip.place(x=self.widget.winfo_x(), y=self.widget.winfo_y() - 20)
+
+    def hide_tooltip(self, event):
+        if self.tooltip:
+            self.tooltip.destroy()
+            self.tooltip = None
+
+class LoginApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.style = ttkb.Style(theme=load_user_preferences())
+        self.title("Login")
+        self.geometry("300x200")
+        self.create_widgets()
+
+    def create_widgets(self):
+        login_frame = ttkb.Frame(self, padding="10 10 10 10")
+        login_frame.grid(row=0, column=0, sticky="nsew")
+
+        # Username
+        self.label_username = ttkb.Label(login_frame, text="Username:")
+        self.label_username.grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.entry_username = ttkb.Entry(login_frame)
+        self.entry_username.grid(row=0, column=1, padx=5, pady=5)
+        Tooltip(self.entry_username, "Enter your username")
+
+        # Password
+        self.label_password = ttkb.Label(login_frame, text="Password:")
+        self.label_password.grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.entry_password = ttkb.Entry(login_frame, show="*")
+        self.entry_password.grid(row=1, column=1, padx=5, pady=5)
+        Tooltip(self.entry_password, "Enter your password")
+
+        # Buttons
+        self.btn_login = ttkb.Button(login_frame, text="Login", command=self.login)
+        self.btn_login.grid(row=2, column=0, columnspan=2, pady=5, sticky="ew")
+        Tooltip(self.btn_login, "Click to login")
+        
+        self.btn_register = ttkb.Button(login_frame, text="Register", command=self.open_registration_window)
+        self.btn_register.grid(row=3, column=0, columnspan=2, pady=5, sticky="ew")
+        Tooltip(self.btn_register, "Register as a new user")
+
+    def login(self):
+        username, password = self.entry_username.get(), self.entry_password.get()
+        user_id = verify_user(username, password)
+        if user_id:
+            print("Login successful")  # Confirming login
+            self.destroy()  # Close Login window
+            app = FinanceApp(user_id)  # Initialize FinanceApp
+            app.mainloop()  # Run the main loop of FinanceApp
+        else:
+            print("Login failed")  # Confirming login failure
+            messagebox.showerror("Error", "Invalid username or password")
+
+    def open_registration_window(self):
+        RegistrationWindow(self)
+
+class RegistrationWindow(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Register")
+        self.geometry("300x200")
+        self.create_registration_form()
+
+    def create_registration_form(self):
+        register_frame = ttkb.Frame(self, padding="10 10 10 10")
+        register_frame.grid(row=0, column=0, sticky="nsew")
+
+        # Username
+        self.label_username = ttkb.Label(register_frame, text="Username:")
+        self.label_username.grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.entry_username = ttkb.Entry(register_frame)
+        self.entry_username.grid(row=0, column=1, padx=5, pady=5)
+
+        # Password
+        self.label_password = ttkb.Label(register_frame, text="Password:")
+        self.label_password.grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.entry_password = ttkb.Entry(register_frame, show="*")
+        self.entry_password.grid(row=1, column=1, padx=5, pady=5)
+
+        # Register Button
+        self.btn_register = ttkb.Button(register_frame, text="Register", command=self.register)
+        self.btn_register.grid(row=2, column=0, columnspan=2, pady=10, sticky="ew")
+
+    def register(self):
+        username, password = self.entry_username.get(), self.entry_password.get()
+        if add_user(username, password):
+            messagebox.showinfo("Success", "User registered successfully")
+            self.destroy()
+        else:
+            messagebox.showerror("Error", "User already exists")
+
+class FinanceApp(tk.Tk):
+    def __init__(self, user_id):
+        super().__init__()
+        print("FinanceApp initialized")  # Confirming FinanceApp start
+        self.user_id = user_id
+        self.style = ttkb.Style(theme=load_user_preferences())
+        self.title("Finance Management System")
+        self.geometry("1000x700")
+        self.create_main_interface()
+
+    def create_main_interface(self):
+        main_frame = ttkb.Frame(self, padding="10 10 10 10")
+        main_frame.grid(row=0, column=0, sticky="nsew")
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        # Notebook Tabs
+        self.notebook = ttkb.Notebook(main_frame)
+        self.notebook.grid(row=0, column=0, sticky="nsew")
+
+        # Transaction Tab
+        self.tab_transactions = ttkb.Frame(self.notebook)
+        self.notebook.add(self.tab_transactions, text='Transactions')
+        self.create_transactions_tab()
+
+        # Reports Tab
+        self.tab_reports = ttkb.Frame(self.notebook)
+        self.notebook.add(self.tab_reports, text='Reports')
+        self.create_reports_tab()
+
+        # Settings Tab
+        self.tab_settings = ttkb.Frame(self.notebook)
+        self.notebook.add(self.tab_settings, text='Settings')
+        self.create_settings_tab()
+
+    def create_transactions_tab(self):
+        trans_frame = ttkb.LabelFrame(self.tab_transactions, text="Transaction Details", padding="10 10 10 10")
+        trans_frame.grid(row=0, column=0, padx=20, pady=10, sticky='nsew')
+
+        # Transaction Type
+        self.label_type = ttkb.Label(trans_frame, text="Transaction Type:")
+        self.label_type.grid(row=0, column=0, sticky=tk.W, padx=10, pady=5)
+        self.trans_type = tk.StringVar(value="expense")
+        self.radio_expense = ttkb.Radiobutton(trans_frame, text="Expense", variable=self.trans_type, value="expense")
+        self.radio_income = ttkb.Radiobutton(trans_frame, text="Income", variable=self.trans_type, value="income")
+        self.radio_expense.grid(row=0, column=1, sticky=tk.W)
+        self.radio_income.grid(row=0, column=2, padx=20, sticky=tk.W)
+
+        # Amount
+        self.label_amount = ttkb.Label(trans_frame, text="Amount:")
+        self.label_amount.grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
+        self.entry_amount = ttkb.Entry(trans_frame)
+        self.entry_amount.grid(row=1, column=1, padx=10, pady=5)
+
+        # Category
+        self.label_category = ttkb.Label(trans_frame, text="Category:")
+        self.label_category.grid(row=2, column=0, sticky=tk.W, padx=10, pady=5)
+        self.entry_category = ttkb.Entry(trans_frame)
+        self.entry_category.grid(row=2, column=1, padx=10, pady=5)
+
+        # Date
+        self.label_date = ttkb.Label(trans_frame, text="Date:")
+        self.label_date.grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
+        self.entry_date = DateEntry(trans_frame, date_pattern='yyyy-mm-dd')
+        self.entry_date.grid(row=3, column=1, padx=10, pady=5)
+
+        # Currency
+        self.label_currency = ttkb.Label(trans_frame, text="Currency:")
+        self.label_currency.grid(row=4, column=0, sticky=tk.W, padx=10, pady=5)
+        self.currency = tk.StringVar(value="USD")
+        self.currency_menu = ttkb.Combobox(trans_frame, textvariable=self.currency, values=["USD", "UAH", "EUR"])
+        self.currency_menu.grid(row=4, column=1, padx=10, pady=5)
+
+        # Add Transaction Button
+        self.btn_add = ttkb.Button(trans_frame, text="Add Transaction", command=self.add_transaction)
+        self.btn_add.grid(row=5, column=0, columnspan=3, pady=10)
+
+        # Transaction Treeview
+        self.tree_transactions = ttkb.Treeview(self.tab_transactions, columns=("ID", "Type", "Amount", "Category", "Date", "Currency"), show="headings")
+        for col in ["ID", "Type", "Amount", "Category", "Date", "Currency"]:
+            self.tree_transactions.heading(col, text=col)
+        self.tree_transactions.grid(row=1, column=0, padx=20, pady=10, sticky='nsew')
+
+        self.populate_transactions()
+
+    def populate_transactions(self):
+        for row in self.tree_transactions.get_children():
+            self.tree_transactions.delete(row)
+        transactions = get_transactions(self.user_id)
+        for transaction in transactions:
+            self.tree_transactions.insert('', 'end', values=transaction[1:])
+
+    def add_transaction(self):
+        trans_type = self.trans_type.get()
+        amount = self.entry_amount.get()
+        category = self.entry_category.get()
+        date = self.entry_date.get()
+        currency = self.currency.get()
+        if not amount or not category or not date:
+            messagebox.showwarning("Error", "Fill all fields!")
+            return
+        if not self.validate_amount(amount):
+            messagebox.showwarning("Error", "Invalid amount!")
+            return
+        try:
+            add_transaction(trans_type, float(amount), category, date, self.user_id, currency)
+            messagebox.showinfo("Success", "Transaction added!")
+            self.clear_fields()
+            self.populate_transactions()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to add transaction: {e}")
+
+    def validate_amount(self, amount):
+        try:
+            float(amount)
+            return True
+        except ValueError:
+            return False
+
+    def create_reports_tab(self):
+        self.btn_plot = ttkb.Button(self.tab_reports, text="View Financial Reports", command=self.plot_financial_data)
+        self.btn_plot.pack(pady=20)
+
+    def plot_financial_data(self):
+        try:
+            df = pd.DataFrame(get_transactions(self.user_id), columns=['ID', 'Type', 'Amount', 'Category', 'Date', 'Currency'])
+            df['Amount'] = df['Amount'].astype(float)
+            expenses = df[df['Type'] == 'expense']
+            income = df[df['Type'] == 'income']
+            exp_sums = expenses.groupby('Category')['Amount'].sum()
+            inc_sums = income.groupby('Category')['Amount'].sum()
+            fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+            exp_sums.plot(kind='pie', ax=ax[0], autopct='%1.1f%%')
+            ax[0].set_title('Expenses by Category')
+            inc_sums.plot(kind='pie', ax=ax[1], autopct='%1.1f%%')
+            ax[1].set_title('Income by Category')
+            plt.show()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to plot data: {e}")
+
+    def create_settings_tab(self):
+        self.dark_mode_toggle = ttkb.Checkbutton(self.tab_settings, text="Dark Mode", command=self.toggle_dark_mode)
+        self.dark_mode_toggle.pack(pady=20)
+
+        self.btn_backup = ttkb.Button(self.tab_settings, text="Backup Database", command=backup_database)
+        self.btn_backup.pack(pady=10)
+
+        self.btn_restore = ttkb.Button(self.tab_settings, text="Restore Database", command=restore_database)
+        self.btn_restore.pack(pady=10)
+
+    def toggle_dark_mode(self):
+        current_theme = self.style.theme.name
+        new_theme = "darkly" if current_theme != "darkly" else "flatly"
+        self.style.theme_use(new_theme)
+        save_user_preferences(new_theme)
+
+    def clear_fields(self):
+        self.entry_amount.delete(0, tk.END)
+        self.entry_category.delete(0, tk.END)
+        self.entry_date.set_date('')
+        self.currency.set("USD")
+
+if __name__ == "__main__":
+    init_db()
+    LoginApp().mainloop()
