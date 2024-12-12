@@ -1432,7 +1432,6 @@ class FinanceApp(tk.Tk):
             font=("Helvetica", 12)
         ).grid(row=3, column=0, columnspan=3, sticky=tk.W, padx=5)
 
-
     # Transaction Details Frame
         frame_transactions = ttk.LabelFrame(
             frame_dashboard, text="Transaction Details",
