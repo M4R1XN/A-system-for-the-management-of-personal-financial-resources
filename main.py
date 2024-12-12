@@ -321,18 +321,12 @@ class ToolTip:
         self.tw.wm_overrideredirect(True)
         self.tw.wm_geometry(f"+{x}+{y}")
 
-        label = tk.Label(
+        label = ttk.Label(
             self.tw,
             text=self.text,
-            justify='left',
-            background="#000000",  # Black background for tooltip
-            foreground="#FFFFFF",  # White text for contrast
-            relief='solid',
-            borderwidth=1,
-            font=("Arial", 10)
+            style="Tooltip.TLabel"
         )
         label.pack(ipadx=1)
-
 
     def hide(self, event):
         if self.tw:
@@ -359,6 +353,10 @@ class FinanceApp(tk.Tk):
         self.setup_styles()
         self.create_widgets()  # Create all widgets here
         self.start_auto_refresh()  # Start refreshing after widgets are initialized
+        self.filter_summary_var = tk.StringVar(value="No filters applied")
+        self.comparison_result_frame = ttk.Frame(self.tabs['reports'])
+        self.comparison_result_frame.pack(fill=tk.BOTH, expand=True)
+
         self.plot_type = tk.StringVar(value="Bar Chart")  # Default plot type
 
     def populate_planned_transactions(self):
@@ -648,25 +646,31 @@ class FinanceApp(tk.Tk):
         """Define improved color schemes for accessibility."""
         self.color_schemes = {
             "Light": {
-                "bg": "#FFFFFF",  # White background
-                "fg": "#000000",  # Black text
-                "button_bg": "#E0E0E0",  # Light gray for buttons
-                "highlight": "#007ACC",  # Blue for highlights
-                "text": "#000000"  # Black text
+                "bg": "#FFFFFF",          # White background
+                "fg": "#000000",          # Black text
+                "button_bg": "#E0E0E0",   # Light gray for buttons
+                "highlight": "#007ACC",   # Blue for highlights
+                "text": "#000000",        # Black text
+                "error": "#FF0000",       # Red for errors
+                "success": "#008000",     # Green for success
             },
             "Dark": {
-                "bg": "#1E1E1E",  # Very dark gray background
-                "fg": "#D4D4D4",  # Light gray text
-                "button_bg": "#3C3C3C",  # Dark gray for buttons
-                "highlight": "#0A84FF",  # Bright blue for highlights
-                "text": "#FFFFFF"  # White text
+                "bg": "#121212",          # Deep black background
+                "fg": "#E0E0E0",          # Light gray text
+                "button_bg": "#1F1F1F",   # Slightly lighter black for buttons
+                "highlight": "#BB86FC",   # Purple accent (Material Design style)
+                "text": "#E0E0E0",        # Light gray text
+                "error": "#CF6679",       # Material Design red for errors
+                "success": "#03DAC6",     # Teal for success
             },
             "High Contrast": {
-                "bg": "#000000",  # Black background
-                "fg": "#FFFFFF",  # White text
-                "button_bg": "#FFD700",  # Bright yellow for buttons
-                "highlight": "#FF4500",  # Orange-red for highlights
-                "text": "#FFFFFF"  # White text
+                "bg": "#000000",          # Black background
+                "fg": "#FFFFFF",          # White text
+                "button_bg": "#FFD700",   # Bright yellow for buttons
+                "highlight": "#FF4500",   # Orange-red for highlights
+                "text": "#FFFFFF",        # White text
+                "error": "#FF6347",       # Tomato red for errors
+                "success": "#32CD32",     # Lime green for success
             }
         }
 
@@ -679,18 +683,52 @@ class FinanceApp(tk.Tk):
 
     # General styles
         self.style.configure(
-            "TLabel", background=scheme["bg"], foreground=scheme["fg"], font=("Arial", 12)
+            "TLabel",
+            background=scheme["bg"],
+            foreground=scheme["fg"],
+            font=("Arial", 12)
         )
-        self.style.configure("TFrame", background=scheme["bg"])
+        self.style.configure(
+            "TFrame",
+            background=scheme["bg"]
+        )
         self.style.configure(
             "TButton",
             background=scheme["button_bg"],
             foreground=scheme["fg"],
             font=("Arial", 12),
-            borderwidth=0,
+            borderwidth=1
         )
         self.style.map(
-            "TButton", background=[("active", scheme["highlight"])]
+            "TButton",
+            background=[("active", scheme["highlight"])],
+            foreground=[("active", scheme["text"])]
+        )
+        self.style.configure(
+            "Treeview",
+            background=scheme["bg"],
+            foreground=scheme["fg"],
+            fieldbackground=scheme["bg"],
+            borderwidth=1
+        )
+        self.style.map(
+            "Treeview",
+            background=[("selected", scheme["highlight"])],
+            foreground=[("selected", scheme["text"])]
+        )
+        self.style.configure(
+            "Treeview.Heading",
+            background=scheme["button_bg"],
+            foreground=scheme["fg"],
+            font=("Arial", 12, "bold")
+        )
+
+    # Tooltip customization for the dark theme
+        self.style.configure(
+            "Tooltip.TLabel",
+            background=scheme["highlight"],
+            foreground=scheme["text"],
+            font=("Arial", 10)
         )
 
     # Login-specific styles
@@ -706,9 +744,21 @@ class FinanceApp(tk.Tk):
             font=("Arial", 20, "bold"),
             foreground=scheme["highlight"],
         )
-        self.style.configure("LoginFormLabel.TLabel", font=("Arial", 12), foreground=scheme["fg"])
-        self.style.configure("LoginButton.TButton", background="#007ACC", foreground="white")
-        self.style.configure("RegisterButton.TButton", background="#28A745", foreground="white")
+        self.style.configure(
+            "LoginFormLabel.TLabel",
+            font=("Arial", 12),
+            foreground=scheme["fg"]
+        )
+        self.style.configure(
+            "LoginButton.TButton",
+            background=scheme["highlight"],
+            foreground=scheme["text"]
+        )
+        self.style.configure(
+            "RegisterButton.TButton",
+            background=scheme["success"],
+            foreground=scheme["text"]
+        )
 
     def create_widgets(self):
         self.main_frame = ttk.Frame(self)
@@ -718,57 +768,67 @@ class FinanceApp(tk.Tk):
         self.create_reports_tab()
 
     def create_reports_tab(self):
-        """Create the Reports tab with various chart options and a data table."""
+        """Create the enhanced Reports tab."""
         frame_reports = ttk.Frame(self.tabs['reports'])
         frame_reports.pack(fill='both', expand=True, padx=20, pady=10)
 
     # Report Selection Section
-        report_selection_frame = ttk.Frame(frame_reports)
-        report_selection_frame.pack(fill='x', pady=10)
+        report_selection_frame = ttk.LabelFrame(frame_reports, text="Report Options", padding=10)
+        report_selection_frame.grid(row=0, column=0, columnspan=2, pady=10, sticky='nsew')
 
-        ttk.Label(report_selection_frame, text="Select Report Type:", font=("Arial", 12)).pack(side=tk.LEFT, padx=5)
-        self.report_type_var = tk.StringVar(value="Bar Chart")  # Default to Bar Chart
+        ttk.Label(report_selection_frame, text="Select Report Type:", font=("Arial", 12)).grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        self.report_type_var = tk.StringVar(value="Bar Chart")  # Default report type
         report_types = ["Bar Chart", "Line Chart", "Histogram", "Table View", "Heatmap"]
-        report_dropdown = ttk.Combobox(report_selection_frame, textvariable=self.report_type_var, values=report_types, state="readonly")
-        report_dropdown.pack(side=tk.LEFT, padx=5)
+        report_dropdown = ttk.Combobox(report_selection_frame, textvariable=self.report_type_var, values=report_types, state="readonly", font=("Arial", 12))
+        report_dropdown.grid(row=0, column=1, padx=5, pady=5)
         report_dropdown.bind("<<ComboboxSelected>>", self.update_report)
 
-    # Export Options
-        ttk.Button(report_selection_frame, text="Export to PDF", command=self.export_to_pdf).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(report_selection_frame, text="Export to Excel", command=self.export_to_excel).pack(side=tk.RIGHT, padx=5)
+    # Export Buttons
+        export_frame = ttk.Frame(report_selection_frame)
+        export_frame.grid(row=0, column=2, padx=10, pady=5, sticky=tk.E)
+        ttk.Button(export_frame, text="Export to PDF", command=self.export_to_pdf).pack(side=tk.LEFT, padx=5)
+        ttk.Button(export_frame, text="Export to Excel", command=self.export_to_excel).pack(side=tk.LEFT, padx=5)
 
     # Filter Section
-        filter_frame = ttk.LabelFrame(frame_reports, text="Filter Options", padding=10)
-        filter_frame.pack(fill='x', pady=10)
+        filter_frame = ttk.LabelFrame(frame_reports, text="Filters", padding=10)
+        filter_frame.grid(row=1, column=0, columnspan=2, pady=10, sticky='nsew')
+
         ttk.Label(filter_frame, text="Category:").grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         self.filter_category = tk.StringVar(value="All")
         categories = ["All"] + list(set(t['category'] for t in get_transactions(self.user_id)))
         ttk.Combobox(filter_frame, textvariable=self.filter_category, values=categories, state="readonly").grid(row=0, column=1, padx=5, pady=5)
+
         ttk.Label(filter_frame, text="Date Range:").grid(row=0, column=2, padx=5, pady=5, sticky=tk.W)
         self.filter_start_date = DateEntry(filter_frame, date_pattern='yyyy-mm-dd')
         self.filter_start_date.grid(row=0, column=3, padx=5, pady=5)
         self.filter_end_date = DateEntry(filter_frame, date_pattern='yyyy-mm-dd')
         self.filter_end_date.grid(row=0, column=4, padx=5, pady=5)
-        ttk.Button(filter_frame, text="Apply Filters", command=self.apply_filters).grid(row=0, column=5, padx=5, pady=5)
+
+        ttk.Button(filter_frame, text="Apply Filters", command=self.apply_filters).grid(row=0, column=5, padx=10, pady=5)
 
     # Report Display Area
-        self.report_frame = ttk.Frame(frame_reports)
+        display_frame = ttk.LabelFrame(frame_reports, text="Report Display", padding=10)
+        display_frame.grid(row=2, column=0, columnspan=2, pady=10, sticky='nsew')
+
+        self.report_frame = ttk.Frame(display_frame)
         self.report_frame.pack(fill='both', expand=True, padx=10, pady=10)
 
-        # Comparison Section
+    # Comparison Section
         comparison_frame = ttk.LabelFrame(frame_reports, text="Comparison Tools", padding=10)
-        comparison_frame.pack(fill='x', pady=10)
+        comparison_frame.grid(row=3, column=0, columnspan=2, pady=10, sticky='nsew')
 
-        ttk.Label(comparison_frame, text="Select Comparison Type:", font=("Arial", 12)).pack(side=tk.LEFT, padx=5)
+        ttk.Label(comparison_frame, text="Select Comparison Type:", font=("Arial", 12)).grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
         self.comparison_type_var = tk.StringVar(value="Monthly")
         comparison_types = ["Monthly", "Yearly"]
         comparison_dropdown = ttk.Combobox(comparison_frame, textvariable=self.comparison_type_var, values=comparison_types, state="readonly")
-        comparison_dropdown.pack(side=tk.LEFT, padx=5)
+        comparison_dropdown.grid(row=0, column=1, padx=5, pady=5)
 
-        ttk.Button(comparison_frame, text="Generate Comparison", command=self.generate_comparison_report).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(comparison_frame, text="Generate Comparison", command=self.generate_comparison_report).grid(row=0, column=2, padx=5, pady=5)
 
-        self.comparison_result_frame = ttk.Frame(frame_reports)
-        self.comparison_result_frame.pack(fill='both', expand=True, padx=10, pady=10)
+    # Dynamic Grid Configuration for Responsiveness
+        frame_reports.grid_columnconfigure(0, weight=1)
+        frame_reports.grid_columnconfigure(1, weight=1)
+        frame_reports.grid_rowconfigure(2, weight=1)
 
     # Initialize Default Report (Bar Chart)
         self.update_report()
@@ -861,6 +921,7 @@ class FinanceApp(tk.Tk):
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def generate_comparison_report(self):
+        """Generate an enhanced comparison report."""
         comparison_type = self.comparison_type_var.get()
 
     # Fetch and process transactions
@@ -878,73 +939,56 @@ class FinanceApp(tk.Tk):
             self.generate_monthly_comparison(df)
         elif comparison_type == "Yearly":
             self.generate_yearly_comparison(df)
+        elif comparison_type == "Category Comparison":
+            self.generate_category_comparison(df)
+
+    def generate_category_comparison(self, df):
+        """Generate comparison of categories over time."""
+    # Group by category and month
+        df['Month'] = df['Date'].dt.to_period('M')
+        category_totals = df.groupby(['Month', 'category'])['Amount'].sum().unstack(fill_value=0)
+
+    # Plot category comparison as stacked bar chart
+        fig, ax = plt.subplots(figsize=(12, 6))
+        category_totals.plot(kind='bar', stacked=True, ax=ax, colormap="viridis")
+        ax.set_title("Category Comparison Over Time")
+        ax.set_xlabel("Month")
+        ax.set_ylabel("Total Amount ($)")
+        ax.legend(title="Category", bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    # Add chart to the UI
+        self.display_comparison_results(fig, "Category Comparison Over Time")
 
     def generate_monthly_comparison(self, df):
-    # Group by Month and transaction type
-        df['Month'] = df['Date'].dt.to_period('M')
+        """Generate monthly comparison report."""
+        df['Month'] = df['Date'].dt.to_period('M').astype(str)
         monthly_totals = df.groupby(['Month', 'type'])['Amount'].sum().unstack(fill_value=0)
 
-        print("Monthly Totals:\n", monthly_totals)  # Debugging step
+    # Calculate percentage changes
+        monthly_totals['Income Change (%)'] = monthly_totals.get('income', 0).pct_change() * 100
+        monthly_totals['Expense Change (%)'] = monthly_totals.get('expense', 0).pct_change() * 100
 
-    # Calculate Percentage Change if columns exist
-        if 'income' in monthly_totals.columns:
-            monthly_totals['Income Change (%)'] = monthly_totals['income'].pct_change() * 100
-        else:
-            print("Column 'income' is missing in monthly_totals")
+    # Plot data
+        fig, ax = plt.subplots(figsize=(12, 6))
+        monthly_totals[['income', 'expense']].plot(kind='bar', ax=ax, color=['green', 'red'])
+        ax.set_title("Monthly Income and Expense Comparison")
+        ax.set_xlabel("Month")
+        ax.set_ylabel("Amount ($)")
 
-        if 'expense' in monthly_totals.columns:
-            monthly_totals['Expense Change (%)'] = monthly_totals['expense'].pct_change() * 100
-        else:
-            print("Column 'expense' is missing in monthly_totals")
+    # Annotate percentage changes
+        for i, row in monthly_totals.iterrows():
+            if 'Income Change (%)' in row:
+                ax.text(i, row['income'], f"{row['Income Change (%)']:.1f}%", ha='center', color='green')
+            if 'Expense Change (%)' in row:
+                ax.text(i, row['expense'], f"{row['Expense Change (%)']:.1f}%", ha='center', color='red')
 
-    # Pass the DataFrame to display results
-        self.display_comparison_results(monthly_totals, title="Monthly Comparison")
+        self.display_comparison_results(fig, "Monthly Comparison")
 
-    def generate_yearly_comparison(self, df):
-    # Group by Year
-        df['Year'] = df['Date'].dt.year
-        yearly_totals = df.groupby(['Year', 'type'])['Amount'].sum().unstack(fill_value=0)
-
-    # Calculate Percentage Change
-        yearly_totals['Income Change (%)'] = yearly_totals['income'].pct_change() * 100
-        yearly_totals['Expense Change (%)'] = yearly_totals['expense'].pct_change() * 100
-
-    # Display Results
-        self.display_comparison_results(yearly_totals, title="Yearly Comparison")
-    
-    def display_comparison_results(self, data, title):
-    # Check required columns
-        required_columns = ['income', 'expense']
-        missing_columns = [col for col in required_columns if col not in data.columns]
-
-        if missing_columns:
-            messagebox.showinfo(
-                "Missing Data",
-                f"Cannot generate {title}. Missing columns: {', '.join(missing_columns)}"
-            )
-            return
-
-    # Clear the result frame
+    def display_comparison_results(self, fig, title):
+        """Display comparison results."""
         for widget in self.comparison_result_frame.winfo_children():
             widget.destroy()
 
-    # Create a figure for the results
-        fig, ax = plt.subplots(figsize=(10, 6))
-        data[['income', 'expense']].plot(kind='bar', ax=ax, color=['green', 'red'])
-        ax.set_title(title)
-        ax.set_xlabel("Period")
-        ax.set_ylabel("Total Amount ($)")
-        ax.legend(["Income", "Expense"])
-
-    # Annotate percentage changes if they exist
-        if 'Income Change (%)' in data.columns:
-            for i, value in enumerate(data['income']):
-                ax.text(i, value, f"{data['Income Change (%)'][i]:.1f}%", ha='center', color='green')
-        if 'Expense Change (%)' in data.columns:
-            for i, value in enumerate(data['expense']):
-                ax.text(i, value, f"{data['Expense Change (%)'][i]:.1f}%", ha='center', color='red')
-
-    # Embed the plot into the Tkinter application
         canvas = FigureCanvasTkAgg(fig, master=self.comparison_result_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -1594,41 +1638,79 @@ class FinanceApp(tk.Tk):
             self.plot_category_trends(df)
 
     def apply_filters(self):
-    # Retrieve all transactions for the logged-in user
-        transactions = get_transactions(self.user_id)
-        if not transactions:
-            messagebox.showwarning("Warning", "No transactions found.")
-            return
-
-    # Convert transactions into a DataFrame for easier processing
+        """Apply filters to the transactions and update the report."""
         try:
+            transactions = get_transactions(self.user_id, is_admin=self.is_admin)
+            if not transactions:
+                self.update_report_message("No transactions found for the selected filters.")
+                return
+
+        # Convert transactions to DataFrame
             df = pd.DataFrame(transactions)
 
-        # Ensure 'date' column is in datetime format and drop invalid rows
-            df['Date'] = pd.to_datetime(df['date'], errors='coerce')  # Convert invalid dates to NaT
-            df = df.dropna(subset=['Date'])  # Drop rows with NaT in 'Date'
+        # Ensure valid data types
+            df['Date'] = pd.to_datetime(df['date'], errors='coerce')
+            df['Amount'] = pd.to_numeric(df['amount'], errors='coerce')
+            df = df.dropna(subset=['Date', 'Amount'])  # Drop rows with invalid dates or amounts
 
-        # Apply category filter if selected
-            if self.filter_category.get() != "All":
-                df = df[df['category'] == self.filter_category.get()]
+        # Apply category filter
+            category_filter = self.filter_category.get()
+            if category_filter != "All":
+                df = df[df['category'] == category_filter]
 
         # Apply date range filter
             start_date = pd.to_datetime(self.filter_start_date.get())
             end_date = pd.to_datetime(self.filter_end_date.get())
             df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
 
-        # Convert the filtered DataFrame back to a list of dictionaries
-            self.filtered_transactions = df.to_dict(orient='records')
+        # Show filter summary
+            self.display_filter_summary(category_filter, start_date, end_date)
 
-        # Plot the filtered data
-            self.plot_financial_data()
+        # Update the report area with filtered data
+            if df.empty:
+                self.update_report_message("No data found for the applied filters.")
+            else:
+                self.update_report_with_filtered_data(df)
 
-        except KeyError as e:
-            messagebox.showerror("Error", f"Missing required field in transaction data: {e}")
-            return
         except Exception as e:
-            messagebox.showerror("Error", f"An error occurred while filtering data: {e}")
-            return
+            print(f"Error applying filters: {e}")
+            self.update_report_message("Error applying filters. Please check your inputs.")
+
+    def display_filter_summary(self, category, start_date, end_date):
+        """Display the summary of applied filters."""
+        summary_text = f"Filters Applied: Category: {category}, Date Range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+        self.filter_summary_var.set(summary_text)
+
+    def update_report_message(self, message):
+        """Update the report area with a message."""
+        for widget in self.report_frame.winfo_children():
+            widget.destroy()
+        ttk.Label(self.report_frame, text=message, font=("Arial", 14)).pack(pady=20)
+
+    def update_report_with_filtered_data(self, df):
+        """Update the report area with filtered data."""
+        for widget in self.report_frame.winfo_children():
+            widget.destroy()
+
+    # Create a scrollable frame for large datasets
+        canvas = tk.Canvas(self.report_frame)
+        scrollbar = ttk.Scrollbar(self.report_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+    # Display filtered data
+        for index, row in df.iterrows():
+            ttk.Label(scrollable_frame, text=f"{row['Date'].strftime('%Y-%m-%d')} - {row['category']} - {row['Amount']} {row['currency']}", font=("Arial", 12)).pack(anchor="w", padx=10, pady=2)  
 
     def plot_financial_data(self, event=None):
     # Ensure a user is logged in before attempting to plot
@@ -1738,28 +1820,38 @@ class FinanceApp(tk.Tk):
             user_frame,
             columns=("ID", "Username", "Admin Status"),
             show="headings",
+            selectmode="browse"
         )
         for col in ("ID", "Username", "Admin Status"):
             self.tree_users.heading(col, text=col)
-            self.tree_users.column(col, width=100)
+            self.tree_users.column(col, width=150)
 
         self.tree_users.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky='nsew')
-        self.populate_user_tree()
+
+    # Scrollbar for Treeview
+        user_scrollbar = ttk.Scrollbar(user_frame, orient=tk.VERTICAL, command=self.tree_users.yview)
+        self.tree_users.configure(yscrollcommand=user_scrollbar.set)
+        user_scrollbar.grid(row=1, column=2, sticky='ns')
 
     # Buttons for User Actions
-        ttk.Button(user_frame, text="Delete Selected User", command=self.delete_selected_user).grid(
-            row=2, column=0, padx=5, pady=5, sticky='w'
-        )
-        ttk.Button(user_frame, text="Promote to Admin", command=self.promote_to_admin).grid(
-            row=2, column=1, padx=5, pady=5, sticky='e'
-        )
+        button_frame = ttk.Frame(user_frame)
+        button_frame.grid(row=2, column=0, columnspan=2, pady=5)
+
+        ttk.Button(button_frame, text="Delete Selected User", command=self.delete_selected_users).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Promote to Admin", command=self.promote_user_to_admin).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Demote from Admin", command=self.demote_user_from_admin).pack(side=tk.LEFT, padx=5)
+
+        self.populate_user_tree()  # Populate users in Treeview
 
     # System Settings Section
         settings_frame = ttk.LabelFrame(frame_admin, text="System Settings", padding=10)
         settings_frame.pack(fill='x', padx=10, pady=10)
 
         ttk.Button(settings_frame, text="Backup Database", command=backup_database).pack(side='left', padx=5)
-        ttk.Button(settings_frame, text="Restore Database", command=restore_database).pack(side='right', padx=5)
+        ttk.Button(settings_frame, text="Restore Database", command=restore_database).pack(side='left', padx=5)
+
+    # Logout Button
+        ttk.Button(frame_admin, text="Logout", command=self.logout_admin).pack(pady=10)
 
     def logout_admin(self):
         """Log out the admin and navigate back to the login screen."""
@@ -1806,22 +1898,34 @@ class FinanceApp(tk.Tk):
             self.user_tree.insert('', 'end', values=(user['id'], user['username'], "Yes" if user['is_admin'] else "No"))
 
     def delete_selected_users(self):
-        """Delete selected users from the Treeview."""
-        selected_items = self.user_tree.selection()
+        """Delete the selected users from the Treeview and database."""
+        selected_items = self.tree_users.selection()
         if not selected_items:
             messagebox.showwarning("Warning", "No users selected!")
             return
 
-        for item in selected_items:
-            user_id = self.user_tree.item(item, "values")[0]
-            self.remove_user(user_id)
+        confirm = messagebox.askyesno(
+            "Confirm Delete",
+            f"Are you sure you want to delete the selected {len(selected_items)} user(s)?"
+        )
+        if not confirm:
+            return
 
-        self.refresh_users()
-        messagebox.showinfo("Success", "Selected users deleted successfully.")
+        conn, c = get_db_connection()
+        try:
+            for item in selected_items:
+                user_id = self.tree_users.item(item, "values")[0]  # Get the user ID
+                c.execute('DELETE FROM users WHERE id = ?', (user_id,))
+                self.tree_users.delete(item)  # Remove from Treeview
+            conn.commit()
+            messagebox.showinfo("Success", "Selected user(s) deleted successfully!")
+        except sqlite3.Error as e:
+            messagebox.showerror("Error", f"Failed to delete user(s): {e}")
+        finally:
+            conn.close()
 
     def promote_user_to_admin(self):
-        """Promote selected user(s) to admin."""
-        selected_items = self.user_tree.selection()
+        selected_items = self.tree_users.selection()
         if not selected_items:
             messagebox.showwarning("Warning", "No users selected!")
             return
@@ -1829,18 +1933,17 @@ class FinanceApp(tk.Tk):
         conn, c = get_db_connection()
         try:
             for item in selected_items:
-                user_id = self.user_tree.item(item, "values")[0]
+                user_id = self.tree_users.item(item, "values")[0]
                 c.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (user_id,))
             conn.commit()
             messagebox.showinfo("Success", "Selected users promoted to admin.")
         finally:
             conn.close()
 
-        self.refresh_users()
+        self.populate_user_tree()  # Refresh user list
 
     def demote_user_from_admin(self):
-        """Demote selected admin(s) to regular user."""
-        selected_items = self.user_tree.selection()
+        selected_items = self.tree_users.selection()
         if not selected_items:
             messagebox.showwarning("Warning", "No users selected!")
             return
@@ -1848,14 +1951,24 @@ class FinanceApp(tk.Tk):
         conn, c = get_db_connection()
         try:
             for item in selected_items:
-                user_id = self.user_tree.item(item, "values")[0]
+                user_id = self.tree_users.item(item, "values")[0]
                 c.execute("UPDATE users SET is_admin = 0 WHERE id = ?", (user_id,))
             conn.commit()
             messagebox.showinfo("Success", "Selected admins demoted to regular users.")
         finally:
             conn.close()
 
-        self.refresh_users()
+        self.populate_user_tree()  # Refresh user list
+
+    def populate_user_tree(self):
+        """Populate the Treeview with user data."""
+        for row in self.tree_users.get_children():
+            self.tree_users.delete(row)
+
+        users = get_users()
+        for user in users:
+            is_admin = "Yes" if user.get('is_admin', 0) else "No"
+            self.tree_users.insert('', 'end', values=(user['id'], user['username'], is_admin))
 
     def generate_detailed_report(self):
         transactions = get_transactions(self.user_id)
@@ -2339,22 +2452,36 @@ class DeleteUserWindow(tk.Toplevel):
 
     def delete_user(self):
         selected = self.listbox_users.curselection()
-        if selected:
-            user_info = self.listbox_users.get(selected[0])
-            user_id = int(user_info.split(" - ")[0])
-            self.remove_user(user_id)
-            self.parent.view_all_users()  # To refresh the user list
-            messagebox.showinfo("Success", "User deleted successfully!")
-            self.destroy()
-        else:
+        if not selected:
             messagebox.showerror("Error", "No user selected!")
+            return
+
+        user_info = self.listbox_users.get(selected[0])
+        user_id = int(user_info.split(" - ")[0])  # Extract user ID
+        confirm = messagebox.askyesno(
+            "Confirm Delete",
+            f"Are you sure you want to delete user with ID {user_id}?"
+        )
+        if not confirm:
+            return
+
+        try:
+            self.remove_user(user_id)
+            self.listbox_users.delete(selected[0])  # Remove from Listbox
+            messagebox.showinfo("Success", "User deleted successfully!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to delete user: {e}")
 
     def remove_user(self, user_id):
-        """Delete a user from the database."""
+        """Delete a user from the database by their user_id."""
         conn, c = get_db_connection()
         try:
-            c.execute('DELETE FROM users WHERE id=?', (user_id,))
+            c.execute('DELETE FROM users WHERE id = ?', (user_id,))
             conn.commit()
+            print(f"User with ID {user_id} deleted successfully.")
+        except Exception as e:
+            print(f"Error deleting user: {e}")
+            messagebox.showerror("Error", f"Failed to delete user: {e}")
         finally:
             conn.close()
 
