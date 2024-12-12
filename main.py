@@ -1139,9 +1139,30 @@ class FinanceApp(tk.Tk):
                 messagebox.showinfo("Success", f"User registered successfully. Secret key saved to {download_dir}")
             else:
                 messagebox.showwarning("Registration", "User registered, but the secret key file was not saved.")
+
+        # Refresh the dropdown to include the new user
+            self.refresh_user_data()
+        
             self.registration_window.destroy()
         else:
             messagebox.showerror("Error", "Username is already taken")
+
+    def refresh_user_data(self):
+        """Reload user data from the database and update the dropdown menu."""
+        try:
+        # Fetch updated user data from the database
+            users_data = get_users()  # Ensure this function works as expected
+            usernames = [user["username"] for user in users_data]
+        
+        # Debug: Print the list of usernames
+            print("Updated user list:", usernames)
+
+        # Update the login dropdown
+            if hasattr(self, 'combo_users'):
+                self.combo_users['values'] = usernames
+                print("Login dropdown updated with new user list.")
+        except Exception as e:
+            print(f"Error refreshing user data: {e}")
 
     def handle_successful_login(self):
         print(f"Login successful for user_id: {self.user_id}")
@@ -1701,60 +1722,46 @@ class FinanceApp(tk.Tk):
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def create_admin_tab(self):
-    # Clear the main frame and create a new admin layout
-        for widget in self.main_frame.winfo_children():
-            widget.destroy()
+        """Create an admin-specific tab for managing the system."""
+        if 'admin' not in self.tabs:
+            self.tabs['admin'] = ttk.Frame(self.notebook)
+            self.notebook.add(self.tabs['admin'], text='Admin Panel')
 
-        frame_admin = ttk.Frame(self.main_frame)
+        frame_admin = ttk.Frame(self.tabs['admin'])
         frame_admin.pack(fill='both', expand=True, padx=20, pady=10)
 
-    # Header Section with Logout Button
-        header_frame = ttk.Frame(frame_admin)
-        header_frame.pack(fill='x', pady=10)
-        ttk.Label(header_frame, text="Admin Dashboard", font=("Arial", 20, "bold")).pack(side=tk.LEFT, padx=10)
-        ttk.Button(header_frame, text="Logout", command=self.logout_admin).pack(side=tk.RIGHT, padx=10)
-        ttk.Button(header_frame, text="Back to Dashboard", command=self.create_dashboard_tab).pack(side=tk.RIGHT, padx=10)
-
     # User Management Section
-        user_management_frame = ttk.LabelFrame(frame_admin, text="User Management", padding=10)
-        user_management_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        user_frame = ttk.LabelFrame(frame_admin, text="User Management", padding=10)
+        user_frame.pack(fill='x', padx=10, pady=10)
 
-    # Search and Filter
-        filter_frame = ttk.Frame(user_management_frame)
-        filter_frame.pack(fill='x', padx=10, pady=5)
-        ttk.Label(filter_frame, text="Search User:").pack(side=tk.LEFT, padx=5)
-        self.user_search_var = tk.StringVar()
-        search_entry = ttk.Entry(filter_frame, textvariable=self.user_search_var)
-        search_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Button(filter_frame, text="Search", command=self.search_users).pack(side=tk.LEFT, padx=5)
-        ttk.Button(filter_frame, text="Refresh", command=self.refresh_users).pack(side=tk.LEFT, padx=5)
+        ttk.Label(user_frame, text="Manage Users:").grid(row=0, column=0, padx=5, pady=5)
+        self.tree_users = ttk.Treeview(
+            user_frame,
+            columns=("ID", "Username", "Admin Status"),
+            show="headings",
+        )
+        for col in ("ID", "Username", "Admin Status"):
+            self.tree_users.heading(col, text=col)
+            self.tree_users.column(col, width=100)
 
-    # User Table
-        user_table_frame = ttk.Frame(user_management_frame)
-        user_table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        self.user_tree = ttk.Treeview(user_table_frame, columns=("ID", "Username", "Admin Status"), show="headings")
-        self.user_tree.heading("ID", text="ID")
-        self.user_tree.heading("Username", text="Username")
-        self.user_tree.heading("Admin Status", text="Admin")
-        self.user_tree.pack(fill=tk.BOTH, expand=True)
+        self.tree_users.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky='nsew')
+        self.populate_user_tree()
 
-    # User Actions
-        action_frame = ttk.Frame(user_management_frame)
-        action_frame.pack(fill='x', pady=10)
-        ttk.Button(action_frame, text="Add User", command=self.open_registration_window).pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="Delete Selected User(s)", command=self.delete_selected_users).pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="Promote to Admin", command=self.promote_user_to_admin).pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="Demote to User", command=self.demote_user_from_admin).pack(side=tk.LEFT, padx=5)
+    # Buttons for User Actions
+        ttk.Button(user_frame, text="Delete Selected User", command=self.delete_selected_user).grid(
+            row=2, column=0, padx=5, pady=5, sticky='w'
+        )
+        ttk.Button(user_frame, text="Promote to Admin", command=self.promote_to_admin).grid(
+            row=2, column=1, padx=5, pady=5, sticky='e'
+        )
 
-    # Database Management Section
-        db_management_frame = ttk.LabelFrame(frame_admin, text="Database Management", padding=10)
-        db_management_frame.pack(fill='both', expand=True, padx=10, pady=10)
-        ttk.Button(db_management_frame, text="Backup Database", command=backup_database).pack(side=tk.LEFT, padx=5)
-        ttk.Button(db_management_frame, text="Restore Database", command=restore_database).pack(side=tk.LEFT, padx=5)
-        ttk.Button(db_management_frame, text="Delete All Users", command=self.confirm_delete_all_users).pack(side=tk.LEFT, padx=5)
+    # System Settings Section
+        settings_frame = ttk.LabelFrame(frame_admin, text="System Settings", padding=10)
+        settings_frame.pack(fill='x', padx=10, pady=10)
 
-        self.refresh_users()
-    
+        ttk.Button(settings_frame, text="Backup Database", command=backup_database).pack(side='left', padx=5)
+        ttk.Button(settings_frame, text="Restore Database", command=restore_database).pack(side='right', padx=5)
+
     def logout_admin(self):
         """Log out the admin and navigate back to the login screen."""
         self.user_id = None
