@@ -235,21 +235,24 @@ def restore_database():
         print(f"Error restoring database: {e}")
         messagebox.showerror("Error", f"Failed to restore database: {e}")
 
-def generate_and_save_secret_key(username):
+def generate_and_save_secret_key(username, admin_id, is_admin):
     """Generate a secret key for the user and save it to a file on the desktop."""
-    secret_key = secrets.token_hex(16)  # Generate a random secret key
+    if not is_admin:
+        raise PermissionError("Only admins can regenerate secret keys.")
     
+    secret_key = secrets.token_hex(16)  # Generate a random secret key
+
     # Get the desktop directory dynamically
-    desktop_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+    desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
     if not os.path.exists(desktop_dir):
         os.makedirs(desktop_dir)  # Create the directory if it doesn't exist
 
     file_path = os.path.join(desktop_dir, f"{username}_secret.key")
-    
+
     # Save the key to the file
     with open(file_path, 'w') as key_file:
         key_file.write(secret_key)
-    
+
     print(f"Secret key for {username} saved to {file_path}. Please store this file securely.")
     return secret_key, file_path
 
@@ -1809,13 +1812,15 @@ class FinanceApp(tk.Tk):
             self.notebook.add(self.tabs['admin'], text='Admin Panel')
 
         frame_admin = ttk.Frame(self.tabs['admin'])
-        frame_admin.pack(fill='both', expand=True, padx=20, pady=10)
+        frame_admin.grid(row=0, column=0, sticky='nsew', padx=20, pady=10)
 
     # User Management Section
         user_frame = ttk.LabelFrame(frame_admin, text="User Management", padding=10)
-        user_frame.pack(fill='x', padx=10, pady=10)
+        user_frame.grid(row=0, column=0, sticky='nsew', padx=10, pady=10)
 
-        ttk.Label(user_frame, text="Manage Users:").grid(row=0, column=0, padx=5, pady=5)
+    # Treeview and scrollbar
+        ttk.Label(user_frame, text="Manage Users:").grid(row=0, column=0, columnspan=4, sticky=tk.W, pady=5)
+
         self.tree_users = ttk.Treeview(
             user_frame,
             columns=("ID", "Username", "Admin Status"),
@@ -1826,32 +1831,61 @@ class FinanceApp(tk.Tk):
             self.tree_users.heading(col, text=col)
             self.tree_users.column(col, width=150)
 
-        self.tree_users.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky='nsew')
+        self.tree_users.grid(row=1, column=0, columnspan=3, sticky='nsew', padx=5, pady=5)
 
-    # Scrollbar for Treeview
         user_scrollbar = ttk.Scrollbar(user_frame, orient=tk.VERTICAL, command=self.tree_users.yview)
         self.tree_users.configure(yscrollcommand=user_scrollbar.set)
-        user_scrollbar.grid(row=1, column=2, sticky='ns')
+        user_scrollbar.grid(row=1, column=3, sticky='ns')
 
-    # Buttons for User Actions
-        button_frame = ttk.Frame(user_frame)
-        button_frame.grid(row=2, column=0, columnspan=2, pady=5)
-
-        ttk.Button(button_frame, text="Delete Selected User", command=self.delete_selected_users).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Promote to Admin", command=self.promote_user_to_admin).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Demote from Admin", command=self.demote_user_from_admin).pack(side=tk.LEFT, padx=5)
-
-        self.populate_user_tree()  # Populate users in Treeview
+    # Buttons for user actions
+        ttk.Button(user_frame, text="Delete Selected User", command=self.delete_selected_users).grid(row=2, column=0, pady=5, padx=5)
+        ttk.Button(user_frame, text="Promote to Admin", command=self.promote_user_to_admin).grid(row=2, column=1, pady=5, padx=5)
+        ttk.Button(user_frame, text="Demote from Admin", command=self.demote_user_from_admin).grid(row=2, column=2, pady=5, padx=5)
+        ttk.Button(user_frame, text="Regenerate Secret Key", command=self.regenerate_secret_key).grid(row=2, column=3, pady=5, padx=5)
 
     # System Settings Section
         settings_frame = ttk.LabelFrame(frame_admin, text="System Settings", padding=10)
-        settings_frame.pack(fill='x', padx=10, pady=10)
+        settings_frame.grid(row=1, column=0, sticky='nsew', padx=10, pady=10)
 
-        ttk.Button(settings_frame, text="Backup Database", command=backup_database).pack(side='left', padx=5)
-        ttk.Button(settings_frame, text="Restore Database", command=restore_database).pack(side='left', padx=5)
+        ttk.Button(settings_frame, text="Backup Database", command=backup_database).grid(row=0, column=0, pady=5, padx=5)
+        ttk.Button(settings_frame, text="Restore Database", command=restore_database).grid(row=0, column=1, pady=5, padx=5)
 
-    # Logout Button
-        ttk.Button(frame_admin, text="Logout", command=self.logout_admin).pack(pady=10)
+    # Logout button
+        ttk.Button(frame_admin, text="Logout", command=self.logout_admin).grid(row=2, column=0, sticky=tk.E, pady=10, padx=10)
+
+    # Ensure frame_admin resizes properly
+        frame_admin.rowconfigure(0, weight=1)
+        frame_admin.columnconfigure(0, weight=1)
+
+    def regenerate_secret_key(self):
+        """Allow admin to regenerate a secret key for a selected user."""
+        selected_items = self.tree_users.selection()
+        if not selected_items:
+            messagebox.showwarning("Warning", "No user selected!")
+            return
+
+        try:
+            user_id = self.tree_users.item(selected_items[0], "values")[0]
+            username = self.tree_users.item(selected_items[0], "values")[1]
+
+        # Verify admin privileges
+            if not self.is_admin:
+                raise PermissionError("Only admins can regenerate secret keys.")
+
+        # Generate a new secret key
+            secret_key, file_path = generate_and_save_secret_key(username, self.user_id, self.is_admin)
+
+        # Update the secret key in the database
+            conn, c = get_db_connection()
+            c.execute('UPDATE users SET secret_key = ? WHERE id = ?', (secret_key, user_id))
+            conn.commit()
+            conn.close()
+
+            messagebox.showinfo("Success", f"Secret key for {username} regenerated and saved at {file_path}.")
+        except PermissionError as e:
+            messagebox.showerror("Permission Denied", str(e))
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to regenerate secret key: {e}")
 
     def logout_admin(self):
         """Log out the admin and navigate back to the login screen."""
