@@ -139,7 +139,7 @@ def verify_user(username, password, secret_key):
         conn.close()
         
 def get_users():
-    """Retrieve all users."""
+    """Retrieve all users from the database."""
     conn, c = get_db_connection()
     try:
         c.execute('SELECT id, username, is_admin FROM users')
@@ -155,10 +155,9 @@ def get_planned_transactions(user_id, is_admin=False):
             c.execute('SELECT * FROM planned_transactions')
         else:
             c.execute('SELECT * FROM planned_transactions WHERE user_id = ?', (user_id,))
-        
         transactions = c.fetchall()
-        columns = [desc[0] for desc in c.description]  # Extract column names
-        return [dict(zip(columns, transaction)) for transaction in transactions]  # Convert to a list of dictionaries
+        columns = [desc[0] for desc in c.description]
+        return [dict(zip(columns, transaction)) for transaction in transactions]
     finally:
         conn.close()
 
@@ -197,7 +196,7 @@ def get_transactions(user_id, is_admin=False):
     conn, c = get_db_connection()
     try:
         if is_admin:
-            c.execute('SELECT id, type, amount, category, date, currency FROM transactions')
+            c.execute('SELECT id, type, amount, category, date, currency, user_id FROM transactions')
         else:
             c.execute('SELECT id, type, amount, category, date, currency FROM transactions WHERE user_id = ?', (user_id,))
         transactions = c.fetchall()
@@ -207,8 +206,9 @@ def get_transactions(user_id, is_admin=False):
                 'type': t[1],
                 'amount': t[2],
                 'category': t[3],
-                'date': t[4],  # Ensure this field exists in your database and query
-                'currency': t[5]
+                'date': t[4],
+                'currency': t[5],
+                'user_id': t[6] if is_admin else None  # Include user_id for admin
             }
             for t in transactions
         ]
@@ -235,26 +235,35 @@ def restore_database():
         print(f"Error restoring database: {e}")
         messagebox.showerror("Error", f"Failed to restore database: {e}")
 
-def generate_and_save_secret_key(username, admin_id, is_admin):
-    """Generate a secret key for the user and save it to a file on the desktop."""
-    if not is_admin:
-        raise PermissionError("Only admins can regenerate secret keys.")
-    
-    secret_key = secrets.token_hex(16)  # Generate a random secret key
+def generate_and_save_secret_key(username, admin_id=None, is_admin=False):
+    """Generate and save a secret key for the user."""
+    if admin_id and not is_admin:
+        messagebox.showerror("Permission Denied", "Only admins can regenerate secret keys.")
+        return None, None
 
-    # Get the desktop directory dynamically
-    desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
-    if not os.path.exists(desktop_dir):
-        os.makedirs(desktop_dir)  # Create the directory if it doesn't exist
+    # Prompt user to select a save location
+    save_path = filedialog.asksaveasfilename(
+        title="Save Secret Key",
+        defaultextension=".key",
+        filetypes=[("Key files", "*.key")],
+        initialfile=f"{username}_secret.key"
+    )
 
-    file_path = os.path.join(desktop_dir, f"{username}_secret.key")
+    if not save_path:
+        messagebox.showinfo("Operation Canceled", "Secret key generation canceled.")
+        return None, None
 
-    # Save the key to the file
-    with open(file_path, 'w') as key_file:
-        key_file.write(secret_key)
+    # Generate the secret key
+    secret_key = secrets.token_hex(16)
+    try:
+        with open(save_path, 'w') as key_file:
+            key_file.write(secret_key)
+        messagebox.showinfo("Success", f"Secret key saved successfully to {save_path}")
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to save the secret key: {e}")
+        return None, None
 
-    print(f"Secret key for {username} saved to {file_path}. Please store this file securely.")
-    return secret_key, file_path
+    return secret_key, save_path
 
 def delete_all_users():
     """Delete all users from the database."""
@@ -864,61 +873,70 @@ class FinanceApp(tk.Tk):
 
     def plot_bar_chart(self, df):
         """Generate a bar chart showing monthly or yearly trends."""
-        fig, ax = plt.subplots(figsize=(10, 5))
+        fig, ax = plt.subplots(figsize=(12, 6))
         df['Month'] = df['Date'].dt.to_period('M')
         monthly_summary = df.groupby('Month')['Amount'].sum()
         monthly_summary.plot(kind='bar', ax=ax, color='skyblue')
-        ax.set_title("Monthly Financial Trends")
-        ax.set_xlabel("Month")
-        ax.set_ylabel("Total Amount ($)")
+        ax.set_title("Monthly Financial Trends", fontsize=16)
+        ax.set_xlabel("Month", fontsize=12)
+        ax.set_ylabel("Total Amount ($)", fontsize=12)
+        ax.tick_params(axis='x', labelrotation=45, labelsize=10)
+        ax.tick_params(axis='y', labelsize=10)
+        fig.tight_layout()  # Ensure everything fits without overlap
         canvas = FigureCanvasTkAgg(fig, master=self.report_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def plot_line_chart(self, df):
         """Generate a line chart showing financial trends over time."""
-        fig, ax = plt.subplots(figsize=(10, 5))
+        fig, ax = plt.subplots(figsize=(12, 6))
         df.set_index('Date').resample('M')['Amount'].sum().plot(kind='line', ax=ax, color='green', marker='o')
-        ax.set_title("Financial Trends Over Time")
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Total Amount ($)")
+        ax.set_title("Financial Trends Over Time", fontsize=16)
+        ax.set_xlabel("Date", fontsize=12)
+        ax.set_ylabel("Total Amount ($)", fontsize=12)
+        ax.tick_params(axis='x', labelrotation=45, labelsize=10)
+        ax.tick_params(axis='y', labelsize=10)
+        fig.tight_layout()
         canvas = FigureCanvasTkAgg(fig, master=self.report_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def plot_histogram(self, df):
         """Generate a histogram showing the distribution of transaction amounts."""
-        fig, ax = plt.subplots(figsize=(10, 5))
+        fig, ax = plt.subplots(figsize=(12, 6))
         df['Amount'].plot(kind='hist', bins=20, ax=ax, color='orange', edgecolor='black')
-        ax.set_title("Distribution of Transaction Amounts")
-        ax.set_xlabel("Amount")
-        ax.set_ylabel("Frequency")
+        ax.set_title("Distribution of Transaction Amounts", fontsize=16)
+        ax.set_xlabel("Amount", fontsize=12)
+        ax.set_ylabel("Frequency", fontsize=12)
+        ax.tick_params(axis='x', labelrotation=0, labelsize=10)
+        ax.tick_params(axis='y', labelsize=10)
+        fig.tight_layout()
         canvas = FigureCanvasTkAgg(fig, master=self.report_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     def plot_heatmap(self, df):
-    # Create a pivot table with categories as rows and types (income/expense) as columns
         pivot_table = df.pivot_table(
-            index='category',  # Rows: Transaction categories
-            columns='type',    # Columns: Transaction types (income/expense)
-            values='Amount',   # Values: Transaction amounts
-            aggfunc='sum',     # Aggregation function: Sum amounts
-            fill_value=0       # Fill missing values with 0
+            index='category',
+            columns='type',
+            values='Amount',
+            aggfunc='sum',
+            fill_value=0
         )
-
-    # Plot the heatmap using seaborn
-        fig, ax = plt.subplots(figsize=(10, 5))
+        fig, ax = plt.subplots(figsize=(14, 8))  # Larger size for better readability
         sns.heatmap(
-            pivot_table,       # Data: Pivot table
-            annot=True,        # Annotate cells with numeric values
-            fmt=".2f",         # Format values to 2 decimal places
-            cmap="YlGnBu",     # Color map: Yellow-Green-Blue gradient
-            ax=ax              # Axes to plot on
+            pivot_table,
+            annot=True,
+            fmt=".2f",
+            cmap="YlGnBu",
+            ax=ax,
+            cbar_kws={'shrink': 0.8},
+            annot_kws={"fontsize": 10}
         )
-        ax.set_title('Expense/Income Heatmap by Category')
-
-    # Embed the chart in the application interface
+        ax.set_title("Expense/Income Heatmap by Category", fontsize=16)
+        ax.tick_params(axis='x', labelrotation=45, labelsize=12)
+        ax.tick_params(axis='y', labelsize=12)
+        fig.tight_layout()
         canvas = FigureCanvasTkAgg(fig, master=self.report_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -1019,7 +1037,7 @@ class FinanceApp(tk.Tk):
     # Title
         ttk.Label(
             form_frame,
-            text="Welcome to Waллet",
+            text="Welcome to FinanceApp",
             font=("Arial", 20, "bold"),
             style="LoginFormTitle.TLabel",
         ).pack(pady=10)
@@ -1154,45 +1172,43 @@ class FinanceApp(tk.Tk):
         ttk.Label(window, text="Username:").pack(pady=5)
         self.entry_username = ttk.Entry(window)
         self.entry_username.pack(pady=5)
+    
         ttk.Label(window, text="Password:").pack(pady=5)
         self.entry_password_reg = ttk.Entry(window, show="*")
         self.entry_password_reg.pack(pady=5)
+    
         ttk.Label(window, text="Confirm Password:").pack(pady=5)
         self.entry_password_confirm = ttk.Entry(window, show="*")
         self.entry_password_confirm.pack(pady=5)
-        ttk.Button(window, text="Register", command=self.register_user).pack(pady=5)
+    
+    # Correctly bind the register_user method
+        ttk.Button(window, text="Register", command=self.register_user).pack(pady=10)
 
     def register_user(self):
         username = self.entry_username.get()
         password = self.entry_password_reg.get()
         password_confirm = self.entry_password_confirm.get()
 
+        if not username or not password or not password_confirm:
+            messagebox.showerror("Error", "All fields are required!")
+            return
+
         if password != password_confirm:
-            messagebox.showerror("Error", "Passwords do not match")
+            messagebox.showerror("Error", "Passwords do not match!")
             return
 
     # Generate and save the secret key
-        secret_key, file_path = generate_and_save_secret_key(username)
-
-        if add_user(username, password, secret_key):  # Pass secret_key as the third argument
-            download_dir = filedialog.asksaveasfilename(
-                defaultextension=".key",
-                initialfile=f"{username}_secret.key",
-                title="Save Secret Key As",
-                filetypes=[("Key files", "*.key")],
-            )
-            if download_dir:
-                shutil.copy(file_path, download_dir)
-                messagebox.showinfo("Success", f"User registered successfully. Secret key saved to {download_dir}")
+        try:
+            secret_key, file_path = generate_and_save_secret_key(username)
+            if secret_key and add_user(username, password, secret_key):  # Add user to database
+                messagebox.showinfo("Success", f"User registered successfully! Secret key saved to {file_path}.")
+                self.registration_window.destroy()  # Close the registration window
+                self.refresh_user_data()  # Refresh the user dropdown for login
             else:
-                messagebox.showwarning("Registration", "User registered, but the secret key file was not saved.")
-
-        # Refresh the dropdown to include the new user
-            self.refresh_user_data()
-        
-            self.registration_window.destroy()
-        else:
-            messagebox.showerror("Error", "Username is already taken")
+                messagebox.showerror("Error", "Username already exists.")
+        except Exception as e:
+            logging.error(f"Error during user registration: {e}")
+            messagebox.showerror("Error", f"Failed to register user: {e}")
 
     def refresh_user_data(self):
         """Reload user data from the database and update the dropdown menu."""
@@ -1641,7 +1657,7 @@ class FinanceApp(tk.Tk):
             self.plot_category_trends(df)
 
     def apply_filters(self):
-        """Apply filters to the transactions and update the report."""
+        """Apply filters to the transactions and update the chart."""
         try:
             transactions = get_transactions(self.user_id, is_admin=self.is_admin)
             if not transactions:
@@ -1669,15 +1685,33 @@ class FinanceApp(tk.Tk):
         # Show filter summary
             self.display_filter_summary(category_filter, start_date, end_date)
 
-        # Update the report area with filtered data
+        # Update the chart with filtered data
             if df.empty:
                 self.update_report_message("No data found for the applied filters.")
             else:
-                self.update_report_with_filtered_data(df)
+                self.update_chart_with_filtered_data(df)
 
         except Exception as e:
             print(f"Error applying filters: {e}")
             self.update_report_message("Error applying filters. Please check your inputs.")
+
+    def update_chart_with_filtered_data(self, df):
+        """Update the chart area with filtered data."""
+        for widget in self.report_frame.winfo_children():
+            widget.destroy()  # Clear existing chart or widgets
+
+    # Generate the appropriate chart based on the selected type
+        chart_type = self.report_type_var.get()
+        if chart_type == "Bar Chart":
+            self.plot_bar_chart(df)
+        elif chart_type == "Line Chart":
+            self.plot_line_chart(df)
+        elif chart_type == "Histogram":
+            self.plot_histogram(df)
+        elif chart_type == "Heatmap":
+            self.plot_heatmap(df)
+        else:
+            self.plot_custom_report(df)
 
     def display_filter_summary(self, category, start_date, end_date):
         """Display the summary of applied filters."""
@@ -1691,29 +1725,56 @@ class FinanceApp(tk.Tk):
         ttk.Label(self.report_frame, text=message, font=("Arial", 14)).pack(pady=20)
 
     def update_report_with_filtered_data(self, df):
-        """Update the report area with filtered data."""
+        """Update the report area with filtered data in a table format."""
+    # Clear existing widgets in the report frame
         for widget in self.report_frame.winfo_children():
             widget.destroy()
 
-    # Create a scrollable frame for large datasets
-        canvas = tk.Canvas(self.report_frame)
-        scrollbar = ttk.Scrollbar(self.report_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
+    # Create a frame for scrollable content
+        scrollable_frame = ttk.Frame(self.report_frame)
+        scrollable_frame.pack(fill=tk.BOTH, expand=True)
 
-        scrollable_frame.bind(
+    # Add a Canvas to enable scrolling
+        canvas = tk.Canvas(scrollable_frame)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    # Create a vertical scrollbar linked to the canvas
+        scrollbar = ttk.Scrollbar(scrollable_frame, orient=tk.VERTICAL, command=canvas.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    # Configure canvas to work with the scrollbar
+        table_frame = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=table_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+    # Update the canvas scroll region when contents change
+        table_frame.bind(
             "<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
 
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+    # Create a Treeview widget inside the table frame
+        tree = ttk.Treeview(
+            table_frame,
+            columns=list(df.columns),
+            show="headings",
+            selectmode="browse"
+        )
+        tree.pack(fill=tk.BOTH, expand=True)
 
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+    # Add a horizontal scrollbar for wide tables
+        h_scrollbar = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=tree.xview)
+        tree.configure(xscrollcommand=h_scrollbar.set)
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
 
-    # Display filtered data
-        for index, row in df.iterrows():
-            ttk.Label(scrollable_frame, text=f"{row['Date'].strftime('%Y-%m-%d')} - {row['category']} - {row['Amount']} {row['currency']}", font=("Arial", 12)).pack(anchor="w", padx=10, pady=2)  
+    # Define column headings and adjust their widths
+        for col in df.columns:
+            tree.heading(col, text=col)
+            tree.column(col, anchor=tk.CENTER, width=max(100, len(col) * 10))
+
+    # Insert data into the Treeview
+        for _, row in df.iterrows():
+            tree.insert('', 'end', values=row.tolist())
 
     def plot_financial_data(self, event=None):
     # Ensure a user is logged in before attempting to plot
@@ -1857,6 +1918,8 @@ class FinanceApp(tk.Tk):
         frame_admin.rowconfigure(0, weight=1)
         frame_admin.columnconfigure(0, weight=1)
 
+        self.populate_user_tree()
+
     def regenerate_secret_key(self):
         """Allow admin to regenerate a secret key for a selected user."""
         selected_items = self.tree_users.selection()
@@ -1868,23 +1931,15 @@ class FinanceApp(tk.Tk):
             user_id = self.tree_users.item(selected_items[0], "values")[0]
             username = self.tree_users.item(selected_items[0], "values")[1]
 
-        # Verify admin privileges
-            if not self.is_admin:
-                raise PermissionError("Only admins can regenerate secret keys.")
-
         # Generate a new secret key
-            secret_key, file_path = generate_and_save_secret_key(username, self.user_id, self.is_admin)
-
-        # Update the secret key in the database
-            conn, c = get_db_connection()
-            c.execute('UPDATE users SET secret_key = ? WHERE id = ?', (secret_key, user_id))
-            conn.commit()
-            conn.close()
-
-            messagebox.showinfo("Success", f"Secret key for {username} regenerated and saved at {file_path}.")
-        except PermissionError as e:
-            messagebox.showerror("Permission Denied", str(e))
+            secret_key, file_path = generate_and_save_secret_key(username, admin_id=self.user_id, is_admin=self.is_admin)
+            if secret_key:
+                conn, c = get_db_connection()
+                c.execute('UPDATE users SET secret_key = ? WHERE id = ?', (secret_key, user_id))
+                conn.commit()
+                messagebox.showinfo("Success", f"Secret key for {username} regenerated and saved to {file_path}.")
         except Exception as e:
+            logging.error(f"Error regenerating secret key: {e}")
             messagebox.showerror("Error", f"Failed to regenerate secret key: {e}")
 
     def logout_admin(self):
@@ -1996,10 +2051,17 @@ class FinanceApp(tk.Tk):
 
     def populate_user_tree(self):
         """Populate the Treeview with user data."""
+    # Clear existing rows in the Treeview
         for row in self.tree_users.get_children():
             self.tree_users.delete(row)
 
+    # Fetch all users from the database
         users = get_users()
+        if not users:
+            print("No users found in the database.")  # Debugging info
+            return
+
+    # Populate the Treeview with user data
         for user in users:
             is_admin = "Yes" if user.get('is_admin', 0) else "No"
             self.tree_users.insert('', 'end', values=(user['id'], user['username'], is_admin))
@@ -2323,20 +2385,22 @@ class FinanceApp(tk.Tk):
             conn.close()
 
     def populate_transactions(self):
-        self.update()  # Ensure immediate UI refresh
+        """Populate the transaction table for all users if admin."""
         for row in self.tree_transactions.get_children():
             self.tree_transactions.delete(row)
 
         transactions = get_transactions(self.user_id, is_admin=self.is_admin)
         if not transactions:
-            print("No transactions found.")  # Debugging line
+            print("No transactions found.")
             return
 
         for transaction in transactions:
-            print("Adding transaction:", transaction)  # Debugging line
+        # Show user_id for admin views
+            user_column = f"User ID: {transaction['user_id']}" if self.is_admin else ""
             self.tree_transactions.insert(
                 '', 'end',
-                values=(transaction['id'], transaction['type'], transaction['amount'], transaction['category'], transaction['date'], transaction['currency'])
+                values=(transaction['id'], transaction['type'], transaction['amount'],
+                        transaction['category'], transaction['date'], transaction['currency'], user_column)
             )
 
     # Fetch transactions for the logged-in user or all transactions for admin
@@ -2358,6 +2422,27 @@ class FinanceApp(tk.Tk):
                 transaction['date'],            
                 transaction['currency']
             ))
+
+    def group_transactions_by_user(self, transactions):
+        """Group transactions by user for admin view."""
+        grouped = {}
+        for transaction in transactions:
+            user_id = transaction['user_id']
+            if user_id not in grouped:
+                grouped[user_id] = []
+            grouped[user_id].append(transaction)
+        return grouped
+        
+    def display_grouped_transactions(self, grouped_transactions):
+        """Display transactions grouped by user."""
+        for user_id, transactions in grouped_transactions.items():
+            self.tree_transactions.insert('', 'end', text=f"User ID: {user_id}", values=())
+            for transaction in transactions:
+                self.tree_transactions.insert(
+                    '', 'end',
+                    values=(transaction['id'], transaction['type'], transaction['amount'],
+                            transaction['category'], transaction['date'], transaction['currency'])
+                )
 
     def clear_fields(self):
         self.entry_amount.delete(0, tk.END)
